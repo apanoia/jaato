@@ -1,4 +1,1 @@
-Use MCP tool confluence.search with CQL query {{CQL_QUERY}} limit {{LIMIT}}.
-Extract results (id, title, excerpt). Provide JSON: {"results":[{"id":..., "title":..., "reason":..., "excerpt":...}]}
-Reason: brief relevance statement derived only from excerpt.
-Return only top {{TOP_N}}.
+Use the Atlassian MCP server to locate in space SpainCrossDomainAS and provide a short 50-lines overview of the contents of one page whose title is "JSON processing at CICS"

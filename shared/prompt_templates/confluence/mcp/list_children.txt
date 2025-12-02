@@ -1,5 +1,4 @@
-Use MCP tool confluence.list_children with parent id {{PARENT_PAGE_ID}} limit {{LIMIT}}.
-Tool output includes: id, title, last_modified_iso.
-Return JSON: {"children":[{"id":..., "title":..., "age_days":...}]}
-Compute age_days from provided NOW_UTC = {{NOW_UTC}}.
+Use MCP tool confluence.search with a CQL query such as cql=parent={{PARENT_PAGE_ID}} and a limit {{LIMIT}} of results.
+Tool output includes: id, title.
+Return JSON: {"children":[{"id":..., "title":...}]}
 No added commentary.
