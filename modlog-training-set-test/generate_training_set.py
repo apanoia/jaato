@@ -6,8 +6,9 @@ if str(ROOT) not in sys.path:
 import os
 import json
 from typing import List, Dict, Any
-from shared.token_accounting import TokenLedger
 from dotenv import load_dotenv
+
+from shared import TokenLedger
 from shared.modlog_training_pipeline import (
     init_vertex,
     ai_parse_mod_history,

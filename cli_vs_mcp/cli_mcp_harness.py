@@ -11,11 +11,14 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from google import genai
 from dotenv import load_dotenv
-from shared.ssl_helper import normalize_ca_env_vars, active_cert_bundle
-from shared.token_accounting import TokenLedger
-from shared.plugins import PluginRegistry
+
+from shared import (
+    genai,
+    normalize_ca_env_vars,
+    PluginRegistry,
+    run_single_prompt,
+)
 
 TEMPLATE_DIR = ROOT / "shared" / "prompt_templates"
 
@@ -120,9 +123,6 @@ def build_prompt(scenario: str, tool_type: str, params: Dict[str, Any], domain: 
             mapping["NOW_UTC"] = params.get("now_utc") or time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
 
     return substitute(template, mapping)
-
-
-from shared.ai_tool_runner import run_single_prompt
 
 
 def print_config(args, domain_params: Dict[str, Any], project_id: str, location: str,
