@@ -6,10 +6,11 @@ if str(ROOT) not in sys.path:
 import os
 import json
 from typing import List, Dict, Any
-from shared.token_accounting import TokenLedger
 from dotenv import load_dotenv
+
+from shared import TokenLedger
 from shared.modlog_training_pipeline import (
-    init_vertex,
+    create_jaato_client,
     ai_parse_mod_history,
     identify_code_changes,
     load_cobol_source,
@@ -128,7 +129,7 @@ def main():
 
     if verbose:
         print('[1/7] Initializing Vertex AI client...')
-    client, model_name = init_vertex()
+    jaato = create_jaato_client()
     ledger = TokenLedger()
 
     # Stage 1: parse or load entries
@@ -150,7 +151,7 @@ def main():
         history_region_text = prepare_history_region(lines, args.max_history_chars)
         if verbose:
             print('[3/7] Parsing modification history (model call)...')
-        entries = ai_parse_mod_history(history_region_text, client, model_name, verbose, ledger)
+        entries = ai_parse_mod_history(history_region_text, jaato, verbose, ledger)
         if not entries:
             print('No modification entries identified; aborting.')
             return
@@ -195,7 +196,7 @@ def main():
         # Batch mode collecting all pairs to support heuristic lines
         records = []
         for entry in entries:
-            change = identify_code_changes(entry, source_text, client, model_name, ledger, verbose)
+            change = identify_code_changes(entry, source_text, jaato, ledger, verbose)
             explanation = change.get('explanation') or 'No explanation returned.'
             changed_items = heuristic_changed_lines(entry, lines)
             if changed_items:
@@ -210,7 +211,7 @@ def main():
         # Streaming or batch without heuristics
         with open(args.out, file_mode, encoding='utf-8') as pf:
             for idx, entry in enumerate(entries, start=1):
-                change = identify_code_changes(entry, source_text, client, model_name, ledger, verbose)
+                change = identify_code_changes(entry, source_text, jaato, ledger, verbose)
                 explanation = change.get('explanation') or 'No explanation returned.'
                 record = make_training_pair(entry, explanation, None, heuristic_used=False)
                 pf.write(json.dumps(record, ensure_ascii=False) + '\n')

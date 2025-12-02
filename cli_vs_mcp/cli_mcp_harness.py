@@ -11,11 +11,14 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from google import genai
 from dotenv import load_dotenv
-from shared.ssl_helper import normalize_ca_env_vars, active_cert_bundle
-from shared.token_accounting import TokenLedger
-from shared.plugins import PluginRegistry
+
+from shared import (
+    normalize_ca_env_vars,
+    PluginRegistry,
+    JaatoClient,
+    TokenLedger,
+)
 
 TEMPLATE_DIR = ROOT / "shared" / "prompt_templates"
 
@@ -122,9 +125,6 @@ def build_prompt(scenario: str, tool_type: str, params: Dict[str, Any], domain: 
     return substitute(template, mapping)
 
 
-from shared.ai_tool_runner import run_single_prompt
-
-
 def print_config(args, domain_params: Dict[str, Any], project_id: str, location: str,
                  model_name: str, scenarios: List[str], all_scenarios: List[str],
                  cli_extra_paths: List[str], submission_timestamp: str) -> None:
@@ -169,6 +169,120 @@ def print_config(args, domain_params: Dict[str, Any], project_id: str, location:
     print()
     print("=" * 70)
     print()
+
+
+def extract_function_calls(history) -> List[Dict[str, Any]]:
+    """Extract function calls and responses from conversation history.
+
+    Args:
+        history: List of Content objects from jaato.get_history().
+
+    Returns:
+        List of dicts with function call/response details.
+    """
+    calls = []
+    for content in history:
+        role = getattr(content, 'role', 'unknown')
+        for part in content.parts:
+            if hasattr(part, 'function_call') and part.function_call:
+                fc = part.function_call
+                calls.append({
+                    'type': 'function_call',
+                    'role': role,
+                    'name': fc.name,
+                    'args': dict(fc.args) if fc.args else {},
+                })
+            elif hasattr(part, 'function_response') and part.function_response:
+                fr = part.function_response
+                # Convert response to JSON-serializable format
+                response = fr.response
+                if hasattr(response, '__dict__'):
+                    response = str(response)
+                calls.append({
+                    'type': 'function_response',
+                    'role': role,
+                    'name': fr.name,
+                    'response': response,
+                })
+    return calls
+
+
+def run_with_ledger(
+    jaato: JaatoClient,
+    registry: PluginRegistry,
+    prompt: str,
+    ledger_path: pathlib.Path,
+    trace: bool = False,
+    trace_dir: pathlib.Path = None
+) -> Dict[str, Any]:
+    """Run a single prompt with JaatoClient, handling ledger and results.
+
+    Args:
+        jaato: Configured JaatoClient instance.
+        registry: Plugin registry (already has plugins exposed).
+        prompt: The prompt to send.
+        ledger_path: Path to write ledger JSONL.
+        trace: Whether to write trace files.
+        trace_dir: Directory for trace files.
+
+    Returns:
+        Dict with 'text', 'summary', 'ledger', 'turns' keys.
+    """
+    import json as _json
+
+    ledger = TokenLedger()
+    jaato.configure_tools(registry, ledger=ledger)
+
+    try:
+        response = jaato.send_message(prompt)
+        text = response
+        error = None
+    except Exception as exc:
+        text = None
+        error = str(exc)
+
+    # Get history for function call tracing
+    history = jaato.get_history()
+    function_calls = extract_function_calls(history)
+
+    # Get summary and write ledger
+    try:
+        summary = ledger.summarize()
+    except Exception:
+        summary = {}
+
+    try:
+        ledger.write_ledger(str(ledger_path))
+    except Exception:
+        pass
+
+    result = {
+        "text": text,
+        "summary": summary,
+        "ledger": str(ledger_path),
+        "turns": summary.get('calls', 1),  # Approximate turns from call count
+    }
+
+    if error:
+        result["error"] = error
+
+    # Write trace if requested
+    if trace and trace_dir is not None:
+        try:
+            trace_dir.mkdir(parents=True, exist_ok=True)
+            trace_path = trace_dir / f"{ledger_path.stem}.trace.json"
+            trace_payload = {
+                'prompt': prompt,
+                'text': text,
+                'function_calls': function_calls,
+                'summary': summary,
+            }
+            with open(trace_path, 'w', encoding='utf-8') as tf:
+                _json.dump(trace_payload, tf, ensure_ascii=False, indent=2)
+        except Exception:
+            pass
+
+    return result
 
 
 def aggregate_runs(runs: List[Dict[str, Any]]) -> Dict[str, Any]:
@@ -327,8 +441,9 @@ Domain parameters (passed via --domain-params JSON):
     location = os.environ["LOCATION"]
     model_name = args.model_name or os.environ["MODEL_NAME"]
 
-    # Initialize google-genai client for Vertex AI
-    client = genai.Client(vertexai=True, project=project_id, location=location)
+    # Initialize JaatoClient for Vertex AI
+    jaato = JaatoClient()
+    jaato.connect(project_id, location, model_name)
 
     # Load templates for the selected domain
     domain = args.domain
@@ -400,10 +515,9 @@ Domain parameters (passed via --domain-params JSON):
             registry.expose_tool('cli', config={'extra_paths': cli_extra_paths} if cli_extra_paths else None)
             cli_prompt = build_prompt(scenario, "cli", domain_params, domain, cli_templates, mcp_templates)
             cli_ledger = cli_trace_dir / f"run{run_index}.jsonl"
-            cli_res = run_single_prompt(
-                client, model_name, cli_prompt, cli_ledger,
-                trace=args.trace, trace_dir=cli_trace_dir,
-                registry=registry
+            cli_res = run_with_ledger(
+                jaato, registry, cli_prompt, cli_ledger,
+                trace=args.trace, trace_dir=cli_trace_dir
             )
             cli_runs.append(cli_res)
             registry.unexpose_tool('cli')
@@ -416,10 +530,9 @@ Domain parameters (passed via --domain-params JSON):
             registry.expose_tool('mcp')
             mcp_prompt = build_prompt(scenario, "mcp", domain_params, domain, cli_templates, mcp_templates)
             mcp_ledger = mcp_trace_dir / f"run{run_index}.jsonl"
-            mcp_res = run_single_prompt(
-                client, model_name, mcp_prompt, mcp_ledger,
-                trace=args.trace, trace_dir=mcp_trace_dir,
-                registry=registry
+            mcp_res = run_with_ledger(
+                jaato, registry, mcp_prompt, mcp_ledger,
+                trace=args.trace, trace_dir=mcp_trace_dir
             )
             mcp_runs.append(mcp_res)
             registry.unexpose_tool('mcp')
