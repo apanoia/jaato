@@ -397,7 +397,7 @@ Domain parameters (passed via --domain-params JSON):
             # CLI run: enable only CLI plugin
             if args.verbose:
                 print(f"  CLI run {run_index}/{args.runs}")
-            registry.enable('cli', config={'extra_paths': cli_extra_paths} if cli_extra_paths else None)
+            registry.expose_tool('cli', config={'extra_paths': cli_extra_paths} if cli_extra_paths else None)
             cli_prompt = build_prompt(scenario, "cli", domain_params, domain, cli_templates, mcp_templates)
             cli_ledger = cli_trace_dir / f"run{run_index}.jsonl"
             cli_res = run_single_prompt(
@@ -406,14 +406,14 @@ Domain parameters (passed via --domain-params JSON):
                 registry=registry
             )
             cli_runs.append(cli_res)
-            registry.disable('cli')
+            registry.unexpose_tool('cli')
 
             time.sleep(0.3)
 
             # MCP run: enable only MCP plugin
             if args.verbose:
                 print(f"  MCP run {run_index}/{args.runs}")
-            registry.enable('mcp')
+            registry.expose_tool('mcp')
             mcp_prompt = build_prompt(scenario, "mcp", domain_params, domain, cli_templates, mcp_templates)
             mcp_ledger = mcp_trace_dir / f"run{run_index}.jsonl"
             mcp_res = run_single_prompt(
@@ -422,7 +422,7 @@ Domain parameters (passed via --domain-params JSON):
                 registry=registry
             )
             mcp_runs.append(mcp_res)
-            registry.disable('mcp')
+            registry.unexpose_tool('mcp')
         summary["scenarios"][scenario] = {
             "cli": aggregate_runs(cli_runs),
             "mcp": aggregate_runs(mcp_runs),
