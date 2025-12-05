@@ -11,6 +11,81 @@ An agent profile is a folder containing configuration files that define:
 - **References**: Documentation and context the agent should have access to
 - **Scope and Goals**: Clear boundaries and objectives
 
+## Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                              Profile Folder                                  │
+│  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐              │
+│  │  profile.json   │  │system_prompt.md │  │permissions.json │              │
+│  │  (required)     │  │  (optional)     │  │  (optional)     │              │
+│  └────────┬────────┘  └────────┬────────┘  └────────┬────────┘              │
+│           │                    │                    │                        │
+│  ┌────────┴────────┐  ┌────────┴────────┐  ┌───────┴────────┐               │
+│  │references.json  │  │  references/    │  │ plugin_configs/│               │
+│  │  (optional)     │  │  *.md, *.txt    │  │  cli.json, ... │               │
+│  └─────────────────┘  └─────────────────┘  └────────────────┘               │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                    │
+                                    ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                             ProfileLoader                                    │
+│  ┌──────────────┐    ┌──────────────┐    ┌──────────────┐                   │
+│  │   discover() │───▶│    load()    │───▶│ AgentProfile │                   │
+│  └──────────────┘    └──────────────┘    └──────┬───────┘                   │
+│         │                                        │                           │
+│         ▼                                        │ resolve inheritance       │
+│  Search paths:                                   │ (extends)                 │
+│  - ./profiles                                    │                           │
+│  - ~/.config/jaato/profiles                      ▼                           │
+│  - JAATO_PROFILE_PATHS                  ┌───────────────┐                   │
+│                                         │ Merged Config │                   │
+│                                         └───────┬───────┘                   │
+└─────────────────────────────────────────────────┼───────────────────────────┘
+                                                  │
+                                                  ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                             JaatoClient                                      │
+│                                                                              │
+│  ┌────────────────────────────────────────────────────────────────────────┐ │
+│  │                     configure_from_profile()                            │ │
+│  │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐   │ │
+│  │  │   Create    │  │  Configure  │  │    Setup    │  │   Apply     │   │ │
+│  │  │  Registry   │─▶│   Plugins   │─▶│ Permissions │─▶│   System    │   │ │
+│  │  │             │  │             │  │             │  │   Prompt    │   │ │
+│  │  └─────────────┘  └─────────────┘  └─────────────┘  └─────────────┘   │ │
+│  └────────────────────────────────────────────────────────────────────────┘ │
+│                                    │                                         │
+│                                    ▼                                         │
+│  ┌─────────────────────────────────────────────────────────────────────────┐│
+│  │                        Configured Agent                                  ││
+│  │  ┌───────────┐  ┌───────────┐  ┌───────────┐  ┌───────────┐            ││
+│  │  │  Plugins  │  │Permission │  │References │  │  System   │            ││
+│  │  │  (cli,    │  │  Policy   │  │  Sources  │  │Instructions│           ││
+│  │  │  mcp,...) │  │           │  │           │  │           │            ││
+│  │  └───────────┘  └───────────┘  └───────────┘  └───────────┘            ││
+│  └─────────────────────────────────────────────────────────────────────────┘│
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Component Relationships
+
+```
+AgentProfile
+├── config: ProfileConfig          # From profile.json
+│   ├── name, description
+│   ├── plugins[]                  # Plugin names to enable
+│   ├── plugin_configs{}           # Inline plugin configs
+│   ├── extends                    # Parent profile (inheritance)
+│   └── scope, goals[]             # Agent boundaries
+│
+├── system_prompt                  # From system_prompt.md
+├── permissions_config             # From permissions.json
+├── references_config              # From references.json
+├── plugin_configs{}               # Merged from plugin_configs/*.json
+└── local_references[]             # Files in references/
+```
+
 ## Folder Structure
 
 ```
