@@ -17,6 +17,7 @@ This document describes the architecture of the jaato framework and how a generi
 │  │  Public API:                                                         │    │
 │  │  • connect(project, location, model)                                │    │
 │  │  • configure_tools(registry, permission_plugin, ledger)             │    │
+│  │  • configure_from_profile(profile) → AgentProfile                   │    │
 │  │  • send_message(message) → response                                 │    │
 │  │  • get_history() / reset_session()                                  │    │
 │  │  • get_context_usage()                                              │    │
@@ -65,6 +66,11 @@ flowchart TB
             TL[TokenLedger<br/>token_accounting.py]
         end
 
+        subgraph Profiles["Profile System"]
+            PL[ProfileLoader<br/>profiles/loader.py]
+            AP[AgentProfile<br/>profiles/models.py]
+        end
+
         subgraph Plugins["Plugin System"]
             PR[PluginRegistry<br/>plugins/registry.py]
 
@@ -75,6 +81,7 @@ flowchart TB
                 TODO[TodoPlugin<br/>plugins/todo/]
                 REFS[ReferencesPlugin<br/>plugins/references/]
                 SUB[SubagentPlugin<br/>plugins/subagent/]
+                PROF[ProfilePlugin<br/>plugins/profile/]
             end
         end
 
@@ -85,18 +92,24 @@ flowchart TB
         VAI[Vertex AI<br/>Gemini Models]
         MCPS[MCP Servers<br/>.mcp.json config]
         Shell[Local Shell<br/>CLI commands]
+        PF[Profile Folders<br/>profiles/]
     end
 
     App --> JC
     JC --> TE
     JC --> TL
     JC --> PR
+    JC --> PL
+    PL --> AP
+    PL --> PF
+    AP --> PR
     PR --> CLI
     PR --> MCP
     PR --> PERM
     PR --> TODO
     PR --> REFS
     PR --> SUB
+    PR --> PROF
     TE --> PERM
     MCP --> MCM
     MCM --> MCPS
@@ -277,12 +290,20 @@ classDiagram
         +profiles user command
     }
 
+    class ProfilePlugin {
+        +name = "profile"
+        +listProfiles()
+        +getProfileInfo()
+        +profiles user command
+    }
+
     ToolPlugin <|.. CLIToolPlugin
     ToolPlugin <|.. MCPToolPlugin
     ToolPlugin <|.. PermissionPlugin
     ToolPlugin <|.. TodoPlugin
     ToolPlugin <|.. ReferencesPlugin
     ToolPlugin <|.. SubagentPlugin
+    ToolPlugin <|.. ProfilePlugin
     PluginRegistry o-- ToolPlugin
     ToolPlugin ..> UserCommand : returns
 ```
@@ -363,6 +384,12 @@ shared/
 ├── ai_tool_runner.py        # ToolExecutor & function loop
 ├── token_accounting.py      # TokenLedger for usage tracking
 ├── mcp_context_manager.py   # MCP server connections
+│
+├── profiles/                # Agent Profile System
+│   ├── __init__.py          # Exports AgentProfile, ProfileLoader
+│   ├── models.py            # AgentProfile, ProfileConfig dataclasses
+│   └── loader.py            # ProfileLoader for discovery & loading
+│
 └── plugins/
     ├── __init__.py          # Exports ToolPlugin, PluginRegistry, UserCommand
     ├── base.py              # ToolPlugin protocol, UserCommand NamedTuple
@@ -375,6 +402,7 @@ shared/
     ├── todo/                # TodoPlugin (model tools + user commands)
     ├── references/          # ReferencesPlugin (model tools + user commands)
     ├── subagent/            # SubagentPlugin (model tools + user commands)
+    ├── profile/             # ProfilePlugin (model tools + user commands)
     │
     │   # GC Plugins (PLUGIN_KIND = "gc") - NOT managed by PluginRegistry
     ├── gc/                  # Base types: GCPlugin protocol, GCConfig, GCResult
@@ -397,3 +425,91 @@ Plugins can provide two types of capabilities:
 User commands are declared via `get_user_commands()` returning `List[UserCommand]`:
 - `share_with_model=True`: Command output added to conversation history (model sees it)
 - `share_with_model=False`: Output only displayed to user (model doesn't see it)
+
+## Agent Profile System
+
+Agent profiles provide folder-based configuration for complete agent setups, bundling together system prompts, plugins, permissions, and references.
+
+### Profile Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                              Profile Folder                                  │
+│  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐              │
+│  │  profile.json   │  │system_prompt.md │  │permissions.json │              │
+│  │  (required)     │  │  (optional)     │  │  (optional)     │              │
+│  └────────┬────────┘  └────────┬────────┘  └────────┬────────┘              │
+│           │                    │                    │                        │
+│  ┌────────┴────────┐  ┌────────┴────────┐  ┌───────┴────────┐               │
+│  │references.json  │  │  references/    │  │ plugin_configs/│               │
+│  │  (optional)     │  │  *.md, *.txt    │  │  cli.json, ... │               │
+│  └─────────────────┘  └─────────────────┘  └────────────────┘               │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                    │
+                                    ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                             ProfileLoader                                    │
+│  ┌──────────────┐    ┌──────────────┐    ┌──────────────┐                   │
+│  │   discover() │───▶│    load()    │───▶│ AgentProfile │                   │
+│  └──────────────┘    └──────────────┘    └──────┬───────┘                   │
+│                                                  │ resolve inheritance       │
+│  Search paths:                                   │ (extends)                 │
+│  - ./profiles                                    ▼                           │
+│  - ~/.config/jaato/profiles             ┌───────────────┐                   │
+│  - JAATO_PROFILE_PATHS                  │ Merged Config │                   │
+│                                         └───────────────┘                   │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                    │
+                                    ▼
+                        JaatoClient.configure_from_profile()
+```
+
+### Profile Loading Flow
+
+```mermaid
+sequenceDiagram
+    participant App as Application
+    participant JC as JaatoClient
+    participant PL as ProfileLoader
+    participant AP as AgentProfile
+    participant PR as PluginRegistry
+
+    App->>JC: configure_from_profile("code_assistant")
+    JC->>PL: load("code_assistant")
+    PL->>PL: discover() search paths
+    PL->>PL: load profile.json
+    PL->>PL: load system_prompt.md
+    PL->>PL: load permissions.json
+    PL->>PL: resolve inheritance (extends)
+    PL-->>JC: AgentProfile
+
+    JC->>PR: create registry
+    loop For each plugin in profile
+        JC->>PR: expose_tool(plugin, config)
+    end
+    JC->>JC: configure_tools(registry)
+    JC->>JC: apply system instructions
+    JC-->>App: AgentProfile
+```
+
+### Usage Patterns
+
+```python
+# Pattern 1: Configure by profile name
+client = JaatoClient()
+client.connect(project, location, model)
+profile = client.configure_from_profile("code_assistant")
+
+# Pattern 2: Configure by path
+profile = client.configure_from_profile("./profiles/my_profile")
+
+# Pattern 3: Use ProfileLoader directly
+from shared.profiles import ProfileLoader
+
+loader = ProfileLoader()
+loader.add_search_path("./profiles")
+loader.discover()
+profile = loader.load("code_assistant")
+```
+
+See [Agent Profiles Guide](agent-profiles.md) for complete documentation.

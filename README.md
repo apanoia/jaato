@@ -45,8 +45,25 @@ jaato is a future-proof framework for building agentic AI applications, featurin
 | [**gc**](shared/plugins/gc/README.md) | Context garbage collection to prevent context window overflow (truncate, summarize, or hybrid strategies) |
 | [**subagent**](shared/plugins/subagent/README.md) | Delegate tasks to specialized subagents with custom tool configurations |
 | [**web_search**](shared/plugins/web_search/README.md) | Search the web using DuckDuckGo for current information |
+| **profile** | Manage and inspect agent profiles for folder-based configuration |
 
 See [shared/plugins/README.md](shared/plugins/README.md) for plugin development documentation.
+
+### Agent Profiles
+
+Agent profiles allow you to define complete agent configurations in a folder structure:
+
+```
+profiles/
+├── my_profile/
+│   ├── profile.json          # Main configuration (required)
+│   ├── system_prompt.md      # Agent instructions
+│   ├── permissions.json      # Permission policy
+│   ├── references/           # Local reference documents
+│   └── plugin_configs/       # Per-plugin configs
+```
+
+Use profiles to bundle system prompts, plugins, permissions, and references into reusable configurations. See [Agent Profiles Guide](docs/agent-profiles.md) for details.
 
 ## Prerequisites
 
@@ -257,12 +274,18 @@ jaato/
 │   ├── ai_tool_runner.py       # Function calling loop orchestrator
 │   ├── token_accounting.py     # Token usage tracking
 │   ├── mcp_context_manager.py  # MCP server connection manager
+│   ├── profiles/               # Agent profile system
+│   │   ├── models.py           # AgentProfile, ProfileConfig
+│   │   └── loader.py           # ProfileLoader for discovery
 │   ├── plugins/                # Tool plugin system
-│   │   ├── cli.py              # CLI tool plugin
-│   │   ├── mcp.py              # MCP tool plugin
+│   │   ├── cli/                # CLI tool plugin
+│   │   ├── mcp/                # MCP tool plugin
+│   │   ├── permission/         # Permission control plugin
+│   │   ├── profile/            # Profile management plugin
 │   │   ├── registry.py         # Plugin discovery & lifecycle
-│   │   └── permission/         # Permission control plugin
+│   │   └── ...                 # Other plugins
 │   └── prompt_templates/       # Domain-specific prompts
+├── profiles.example/           # Example agent profiles
 ├── simple-client/              # Interactive console client
 ├── cli_vs_mcp/                 # CLI vs MCP comparison harness
 ├── sequence-diagram-generator/ # Trace visualization tool
@@ -305,6 +328,7 @@ jaato/
 |----------|-------------|---------|
 | `VERBOSE` | Enable verbose console output | `1` (enabled) |
 | `LEDGER_PATH` | Output path for token accounting JSONL | `token_events_ledger.jsonl` |
+| `JAATO_PROFILE_PATHS` | Colon-separated paths to search for agent profiles | `./profiles` |
 
 ### SSL/TLS Certificates
 
@@ -322,6 +346,8 @@ jaato/
 
 ## Documentation
 
+- [Architecture Overview](docs/architecture.md) - Framework architecture and diagrams
+- [Agent Profiles Guide](docs/agent-profiles.md) - Creating and using agent profiles
 - [GCP Setup Guide](docs/gcp-setup.md) - Setting up your GCP project
 - [Plugin System](shared/plugins/README.md) - Creating custom tool plugins
 - [ModLog Training](modlog-training-set-test/README.md) - COBOL training data generation
