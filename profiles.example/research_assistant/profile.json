@@ -1,0 +1,23 @@
+{
+  "name": "research_assistant",
+  "description": "A specialized profile for research tasks using web search and MCP-based data sources",
+  "version": "1.0",
+  "extends": "base",
+  "model": "gemini-2.5-flash",
+  "plugins": ["web_search", "mcp", "references"],
+  "plugin_configs": {
+    "mcp": {
+      "config_path": ".mcp.json"
+    }
+  },
+  "max_turns": 25,
+  "auto_approved": false,
+  "tags": ["research", "search", "analysis"],
+  "scope": "Research and information gathering using web search and connected data sources",
+  "goals": [
+    "Gather accurate, up-to-date information",
+    "Synthesize information from multiple sources",
+    "Provide well-cited responses",
+    "Identify and verify sources"
+  ]
+}

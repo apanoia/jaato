@@ -1,0 +1,24 @@
+{
+  "name": "code_assistant",
+  "description": "A specialized profile for code analysis, generation, and development tasks",
+  "version": "1.0",
+  "extends": "base",
+  "model": "gemini-2.5-flash",
+  "plugins": ["cli", "references"],
+  "plugin_configs": {
+    "cli": {
+      "allowed_commands": ["git", "npm", "python", "pytest", "ls", "cat", "grep", "find"],
+      "working_directory": "."
+    }
+  },
+  "max_turns": 30,
+  "auto_approved": false,
+  "tags": ["development", "code", "programming"],
+  "scope": "Software development assistance including code generation, review, debugging, and documentation",
+  "goals": [
+    "Write clean, maintainable code",
+    "Follow best practices and coding standards",
+    "Provide thorough code reviews",
+    "Help debug and fix issues efficiently"
+  ]
+}

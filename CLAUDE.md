@@ -70,10 +70,31 @@ python3 -m venv .venv
   - `TokenLedger`: Records prompt/output tokens, handles rate-limit retries with exponential backoff
   - Writes events to JSONL ledger files
 
+### Agent Profiles (`shared/profiles/`)
+
+Agent profiles provide folder-based configuration for complete agent setups:
+
+- **AgentProfile**: Complete profile with system prompt, plugins, permissions, and references
+- **ProfileLoader**: Discovers and loads profiles from directories
+- **ProfileConfig**: Main profile configuration (from `profile.json`)
+
+Profile folder structure:
+```
+profiles/
+├── my_profile/
+│   ├── profile.json          # Main configuration (required)
+│   ├── system_prompt.md      # Agent instructions
+│   ├── permissions.json      # Permission policy
+│   ├── references.json       # Reference sources
+│   ├── references/           # Local reference documents
+│   └── plugin_configs/       # Per-plugin configs
+```
+
 ### Tool Execution Flow
 
 1. Create `JaatoClient` and connect: `jaato.connect(project, location, model)`
 2. Configure tools from plugin registry: `jaato.configure_tools(registry, permission_plugin)`
+   - Or configure from a profile: `jaato.configure_from_profile("profile_name")`
 3. Send message: `response = jaato.send_message(prompt)`
 4. Internally, SDK chat API handles function calling loop:
    - Model returns function calls → executor runs them → results fed back
@@ -107,8 +128,10 @@ MCP servers are configured in `.mcp.json`:
 | `AI_EXECUTE_TOOLS` | Allow generic tool execution (`1`/`true`) |
 | `AI_RETRY_ATTEMPTS` | Max retry attempts for rate limits (default: 5) |
 | `LEDGER_PATH` | Output path for token accounting JSONL |
+| `JAATO_PROFILE_PATHS` | Colon-separated paths to search for agent profiles |
 
 ## Additional Documentation
 
 - [GCP Setup Guide](docs/gcp-setup.md) - Setting up GCP project for Vertex AI
+- [Agent Profiles Guide](docs/agent-profiles.md) - Creating and using agent profiles
 - [ModLog Training README](modlog-training-set-test/README.md) - COBOL training set generation

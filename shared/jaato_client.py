@@ -5,7 +5,8 @@ with support for tool execution via plugins or custom declarations.
 Uses the SDK chat API for multi-turn conversation management.
 """
 
-from typing import Any, Callable, Dict, List, Optional, TYPE_CHECKING
+from pathlib import Path
+from typing import Any, Callable, Dict, List, Optional, TYPE_CHECKING, Union
 
 from google import genai
 from google.genai import types
@@ -43,6 +44,7 @@ DEFAULT_CONTEXT_LIMIT = 1_048_576
 if TYPE_CHECKING:
     from .plugins.registry import PluginRegistry
     from .plugins.permission import PermissionPlugin
+    from .profiles import AgentProfile, ProfileLoader
 
 
 class JaatoClient:
@@ -216,6 +218,151 @@ class JaatoClient:
 
         # Create chat session with configured tools
         self._create_chat()
+
+    def configure_from_profile(
+        self,
+        profile: Union[str, Path, 'AgentProfile'],
+        ledger: Optional[TokenLedger] = None,
+        loader: Optional['ProfileLoader'] = None
+    ) -> 'AgentProfile':
+        """Configure the client from an agent profile.
+
+        An agent profile is a folder-based configuration that includes:
+        - System prompt and instructions
+        - Plugins to enable and their configs
+        - Permission policies
+        - Reference documents
+
+        This method:
+        1. Loads the profile (if given a name or path)
+        2. Creates a plugin registry with the profile's plugins
+        3. Configures permissions from the profile
+        4. Sets up references from the profile
+        5. Applies the profile's system instructions
+
+        Args:
+            profile: Profile name, path to profile folder, or AgentProfile instance.
+            ledger: Optional token ledger for accounting.
+            loader: Optional ProfileLoader (uses default if not provided).
+
+        Returns:
+            The loaded AgentProfile instance.
+
+        Raises:
+            FileNotFoundError: If profile not found.
+            ProfileValidationError: If profile invalid.
+            RuntimeError: If client not connected.
+
+        Example:
+            client = JaatoClient()
+            client.connect(project, location, model)
+
+            # Load by name (searches default paths)
+            profile = client.configure_from_profile("code_assistant")
+
+            # Load by path
+            profile = client.configure_from_profile("./profiles/my_profile")
+
+            # Or pass an already-loaded profile
+            loader = ProfileLoader()
+            loader.add_search_path("./profiles")
+            loader.discover()
+            profile = loader.load("code_assistant")
+            client.configure_from_profile(profile)
+        """
+        if not self._client or not self._model_name:
+            raise RuntimeError("Client not connected. Call connect() first.")
+
+        # Import here to avoid circular imports
+        from .profiles import AgentProfile, ProfileLoader as ProfileLoaderClass
+        from .plugins.registry import PluginRegistry
+
+        # Load profile if given a name or path
+        if isinstance(profile, (str, Path)):
+            path = Path(profile)
+            if path.is_dir():
+                # Direct path to profile folder
+                if loader:
+                    loaded_profile = loader.load_from_path(path)
+                else:
+                    temp_loader = ProfileLoaderClass()
+                    loaded_profile = temp_loader.load_from_path(path)
+            else:
+                # Profile name - use loader to find it
+                if loader is None:
+                    loader = ProfileLoaderClass()
+                    # Add default search paths
+                    cwd_profiles = Path.cwd() / "profiles"
+                    if cwd_profiles.is_dir():
+                        loader.add_search_path(cwd_profiles)
+                    config_profiles = Path.home() / ".config" / "jaato" / "profiles"
+                    if config_profiles.is_dir():
+                        loader.add_search_path(config_profiles)
+                    loader.add_search_paths_from_env()
+                    loader.discover()
+                loaded_profile = loader.load(str(profile))
+        else:
+            loaded_profile = profile
+
+        # Create plugin registry and expose profile's plugins
+        registry = PluginRegistry()
+        registry.discover()
+
+        for plugin_name in loaded_profile.plugins:
+            plugin_config = loaded_profile.get_plugin_config(plugin_name)
+            registry.expose_tool(plugin_name, plugin_config)
+
+        # Handle permission plugin if profile has permissions config
+        permission_plugin = None
+        if loaded_profile.permissions_config:
+            from .plugins.permission import PermissionPlugin as PermPluginClass
+            permission_plugin = PermPluginClass()
+            permission_plugin.initialize({
+                'config': loaded_profile.permissions_config
+            })
+
+        # Handle references plugin if profile has references config
+        if loaded_profile.references_config and 'references' in loaded_profile.plugins:
+            # The references plugin should already be exposed; update its config
+            try:
+                ref_plugin = registry.get_plugin('references')
+                if ref_plugin and hasattr(ref_plugin, 'initialize'):
+                    # Merge profile references config with local references
+                    ref_config = dict(loaded_profile.references_config)
+                    if loaded_profile.local_references:
+                        # Add local references as auto-sources
+                        sources = ref_config.get('sources', [])
+                        for ref_path in loaded_profile.local_references:
+                            sources.append({
+                                'id': f"local_{ref_path.stem}",
+                                'name': ref_path.stem,
+                                'description': f"Local reference: {ref_path.name}",
+                                'type': 'local',
+                                'mode': 'auto',
+                                'path': str(ref_path),
+                            })
+                        ref_config['sources'] = sources
+            except (KeyError, AttributeError):
+                pass
+
+        # Store the ledger
+        self._ledger = ledger
+
+        # Configure tools from registry
+        self.configure_tools(registry, permission_plugin, ledger)
+
+        # Override system instruction with profile's full instructions
+        profile_instructions = loaded_profile.get_full_system_instructions()
+        if profile_instructions:
+            # Prepend profile instructions to existing system instruction
+            if self._system_instruction:
+                self._system_instruction = f"{profile_instructions}\n\n{self._system_instruction}"
+            else:
+                self._system_instruction = profile_instructions
+            # Recreate chat with updated system instruction
+            self._create_chat()
+
+        return loaded_profile
 
     def _configure_subagent_plugin(
         self,

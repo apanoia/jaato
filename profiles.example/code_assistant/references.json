@@ -1,0 +1,24 @@
+{
+  "sources": [
+    {
+      "id": "coding_standards",
+      "name": "Coding Standards",
+      "description": "Project coding standards and best practices",
+      "type": "local",
+      "mode": "auto",
+      "path": "references/coding_standards.md",
+      "tags": ["standards", "code-style"]
+    },
+    {
+      "id": "project_structure",
+      "name": "Project Structure Guide",
+      "description": "Overview of the project's directory structure and architecture",
+      "type": "local",
+      "mode": "selectable",
+      "path": "references/project_structure.md",
+      "tags": ["architecture", "structure"]
+    }
+  ],
+  "actor_type": "console",
+  "actor_timeout": 30
+}

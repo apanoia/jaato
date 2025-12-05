@@ -1,0 +1,15 @@
+{
+  "name": "base",
+  "description": "Base profile with common configurations that other profiles can extend",
+  "version": "1.0",
+  "plugins": ["todo"],
+  "max_turns": 20,
+  "auto_approved": false,
+  "tags": ["base"],
+  "scope": "General-purpose assistant foundation",
+  "goals": [
+    "Provide helpful, accurate responses",
+    "Follow user instructions carefully",
+    "Track tasks and progress"
+  ]
+}
