@@ -12,6 +12,7 @@ from ..base import UserCommand
 
 
 DEFAULT_MAX_OUTPUT_CHARS = 50000  # ~12k tokens at 4 chars/token
+DEFAULT_TIMEOUT_SECONDS = 120  # 2 minutes default timeout
 
 # Shell metacharacters that require shell interpretation
 # These cannot be handled by subprocess with shell=False
@@ -31,11 +32,13 @@ class CLIToolPlugin:
     Configuration:
         extra_paths: List of additional paths to add to PATH when executing commands.
         max_output_chars: Maximum characters to return from stdout/stderr (default: 50000).
+        timeout: Maximum seconds to wait for command completion (default: 120).
     """
 
     def __init__(self):
         self._extra_paths: List[str] = []
         self._max_output_chars: int = DEFAULT_MAX_OUTPUT_CHARS
+        self._timeout: int = DEFAULT_TIMEOUT_SECONDS
         self._initialized = False
 
     @property
@@ -49,6 +52,7 @@ class CLIToolPlugin:
             config: Optional dict with:
                 - extra_paths: Additional PATH entries
                 - max_output_chars: Max characters to return (default: 50000)
+                - timeout: Max seconds to wait for command (default: 120)
         """
         if config:
             if 'extra_paths' in config:
@@ -57,11 +61,14 @@ class CLIToolPlugin:
                     self._extra_paths = paths if isinstance(paths, list) else [paths]
             if 'max_output_chars' in config:
                 self._max_output_chars = config['max_output_chars']
+            if 'timeout' in config:
+                self._timeout = config['timeout']
         self._initialized = True
 
     def shutdown(self) -> None:
         """Shutdown the CLI plugin."""
         self._extra_paths = []
+        self._timeout = DEFAULT_TIMEOUT_SECONDS
         self._initialized = False
 
     def get_function_declarations(self) -> List[types.FunctionDeclaration]:
@@ -180,7 +187,8 @@ IMPORTANT: Large outputs are truncated to prevent context overflow. To avoid tru
                     text=True,
                     check=False,
                     env=env,
-                    shell=True
+                    shell=True,
+                    timeout=self._timeout
                 )
             else:
                 # Non-shell mode: parse into argv list for safer execution
@@ -213,7 +221,8 @@ IMPORTANT: Large outputs are truncated to prevent context overflow. To avoid tru
                     text=True,
                     check=False,
                     env=env,
-                    shell=False
+                    shell=False,
+                    timeout=self._timeout
                 )
 
             # Truncate large outputs to prevent context window overflow
@@ -240,6 +249,11 @@ IMPORTANT: Large outputs are truncated to prevent context overflow. To avoid tru
 
             return result
 
+        except subprocess.TimeoutExpired:
+            return {
+                'error': f'Command timed out after {self._timeout} seconds',
+                'hint': 'Consider breaking down the command or increasing the timeout.'
+            }
         except Exception as exc:
             return {'error': str(exc)}
 

@@ -1,4 +1,5 @@
 {
+  "version": "1.0",
   "sources": [
     {
       "id": "coding_standards",
@@ -19,6 +20,8 @@
       "tags": ["architecture", "structure"]
     }
   ],
-  "actor_type": "console",
-  "actor_timeout": 30
+  "actor": {
+    "type": "console",
+    "timeout": 30
+  }
 }

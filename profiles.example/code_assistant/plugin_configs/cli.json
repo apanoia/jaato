@@ -1,29 +1,5 @@
 {
-  "working_directory": ".",
-  "shell": "/bin/bash",
   "timeout": 30,
-  "allowed_commands": [
-    "git",
-    "npm",
-    "node",
-    "python",
-    "python3",
-    "pip",
-    "pytest",
-    "ls",
-    "cat",
-    "head",
-    "tail",
-    "grep",
-    "find",
-    "pwd",
-    "echo",
-    "mkdir",
-    "touch",
-    "mv",
-    "cp"
-  ],
-  "environment": {
-    "PYTHONUNBUFFERED": "1"
-  }
+  "max_output_chars": 50000,
+  "extra_paths": []
 }

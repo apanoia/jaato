@@ -249,18 +249,68 @@ Place reference documents in the `references/` folder. Supported formats:
 
 ## Plugin Configurations (plugin_configs/)
 
-Store per-plugin configurations as separate JSON files:
+Store per-plugin configurations as separate JSON files. These are merged with inline `plugin_configs` from profile.json.
 
-**plugin_configs/cli.json**:
+### Available Plugin Options
+
+**cli** - Command execution:
 ```json
 {
-  "working_directory": ".",
   "timeout": 30,
-  "allowed_commands": ["git", "npm", "python"]
+  "max_output_chars": 50000,
+  "extra_paths": ["/usr/local/bin"]
 }
 ```
 
-These are merged with inline `plugin_configs` from profile.json.
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `timeout` | int | 120 | Max seconds to wait for command |
+| `max_output_chars` | int | 50000 | Max characters to return |
+| `extra_paths` | string[] | [] | Additional PATH entries |
+
+**mcp** - MCP server connections:
+```json
+{
+  "config_path": ".mcp.json"
+}
+```
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `config_path` | string | null | Path to custom .mcp.json file |
+
+**todo** - Plan tracking:
+```json
+{
+  "reporter_type": "console",
+  "storage_type": "memory"
+}
+```
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `config_path` | string | null | Path to todo.json file |
+| `reporter_type` | string | "console" | Reporter type: "console", "webhook", "file" |
+| `storage_type` | string | "memory" | Storage type: "memory", "file", "hybrid" |
+| `storage_path` | string | null | Path for file-based storage |
+
+**references** - Documentation sources:
+```json
+{
+  "actor_type": "console",
+  "actor_config": {"timeout": 30},
+  "sources": []
+}
+```
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `config_path` | string | null | Path to references.json file |
+| `actor_type` | string | "console" | Actor type: "console", "webhook", "file" |
+| `actor_config` | object | {} | Actor-specific config (timeout, endpoint, etc.) |
+| `sources` | array | [] | Inline reference sources (overrides file) |
+
+Note: Command filtering (allowed/denied commands) should be configured via `permissions.json`, not plugin configs.
 
 ## Using Profiles
 

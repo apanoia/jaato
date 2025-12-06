@@ -1,4 +1,6 @@
 {
   "actor_type": "console",
-  "actor_timeout": 30
+  "actor_config": {
+    "timeout": 30
+  }
 }

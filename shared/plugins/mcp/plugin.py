@@ -19,6 +19,9 @@ class MCPToolPlugin:
     This plugin connects to MCP servers defined in .mcp.json and exposes
     their tools to the AI model. It runs a background thread with an
     asyncio event loop to handle the async MCP protocol.
+
+    Configuration:
+        config_path: Path to custom .mcp.json file (default: .mcp.json in cwd or home)
     """
 
     def __init__(self):
@@ -31,15 +34,23 @@ class MCPToolPlugin:
         self._response_queue: Optional[queue.Queue] = None
         self._initialized = False
         self._mcp_patch_applied = False
+        self._config_path: Optional[str] = None
 
     @property
     def name(self) -> str:
         return "mcp"
 
     def initialize(self, config: Optional[Dict[str, Any]] = None) -> None:
-        """Initialize the MCP plugin by starting the background thread."""
+        """Initialize the MCP plugin by starting the background thread.
+
+        Args:
+            config: Optional configuration dict with:
+                - config_path: Path to custom .mcp.json file
+        """
         if self._initialized:
             return
+        if config:
+            self._config_path = config.get('config_path')
         self._ensure_thread()
         self._initialized = True
 
@@ -55,6 +66,7 @@ class MCPToolPlugin:
         self._manager = None
         self._request_queue = None
         self._response_queue = None
+        self._config_path = None
         self._initialized = False
 
     def get_function_declarations(self) -> List[types.FunctionDeclaration]:
@@ -208,7 +220,7 @@ class MCPToolPlugin:
             self._ensure_mcp_patch()
             from shared.mcp_context_manager import MCPClientManager
 
-            registry = self._load_mcp_registry()
+            registry = self._load_mcp_registry(self._config_path)
             servers = registry.get('mcpServers', {})
 
             # Expand env vars

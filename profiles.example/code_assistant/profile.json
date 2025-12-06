@@ -7,8 +7,7 @@
   "plugins": ["cli", "references"],
   "plugin_configs": {
     "cli": {
-      "allowed_commands": ["git", "npm", "python", "pytest", "ls", "cat", "grep", "find"],
-      "working_directory": "."
+      "timeout": 30
     }
   },
   "max_turns": 30,
