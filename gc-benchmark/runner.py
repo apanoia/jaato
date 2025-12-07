@@ -260,7 +260,7 @@ class BenchmarkRunner:
             )
 
             # Use a fresh client for summarization to avoid state issues
-            response = self._client.send_message(prompt)
+            response = self._client.send_message(prompt, on_intermediate_response=lambda _: None)
             self._client.reset_session()
             return response
 
@@ -286,7 +286,7 @@ class BenchmarkRunner:
         self._client.reset_session(history)
 
         # Send the prompt
-        response = self._client.send_message(prompt)
+        response = self._client.send_message(prompt, on_intermediate_response=lambda _: None)
 
         # Reset again to clean state
         self._client.reset_session()
