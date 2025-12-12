@@ -93,7 +93,7 @@ def wait_for_prompt(child, timeout=60):
             child.send('\n')
 
 
-def wait_for_permission_or_prompt(child, response='y', timeout=60):
+def wait_for_permission_or_prompt(child, response='y', timeout=60, client_type='simple'):
     """Wait for either permission prompt, clarification prompt, or next You> prompt.
 
     Handles:
@@ -101,9 +101,17 @@ def wait_for_permission_or_prompt(child, response='y', timeout=60):
     - Clarification prompts - auto-responds with first choice or default text
     - Pagination prompts - auto-advances through pages
     - You> prompt - returns when ready for next input
+
+    Args:
+        child: pexpect child process
+        response: Response to permission prompts
+        timeout: Timeout in seconds
+        client_type: 'simple' or 'rich' - rich client doesn't output [client] markers
     """
-    # First wait for the client to acknowledge the command
-    child.expect(r'\[client\]', timeout=timeout)
+    # Wait for the client to acknowledge the command (simple client only)
+    # Rich client uses TUI and doesn't output [client] markers
+    if client_type == 'simple':
+        child.expect(r'\[client\]', timeout=timeout)
 
     # Now wait for various prompts in a loop until we get back to You>
     patterns = [
@@ -206,6 +214,7 @@ def run_demo(script_path: Path, client: str = 'simple'):
         timeout=timeout,
         cwd=str(PROJECT_ROOT)
     )
+    # Echo output to see what's happening (works for both clients)
     child.logfile_read = sys.stdout
 
     # Wait for initial prompt
@@ -244,7 +253,7 @@ def run_demo(script_path: Path, client: str = 'simple'):
             time.sleep(0.3)
         else:
             # Model commands wait for [client] then permission/prompt
-            wait_for_permission_or_prompt(child, response=permission, timeout=timeout)
+            wait_for_permission_or_prompt(child, response=permission, timeout=timeout, client_type=client)
             time.sleep(0.3)
 
     # Wait for EOF
