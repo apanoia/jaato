@@ -14,6 +14,7 @@ import os
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 from mcp.types import Tool, CallToolResult
+import mcp.types as mcp_types
 
 
 @dataclass
@@ -135,8 +136,35 @@ class MCPClientManager:
 
         self._log('DEBUG', 'ClientSession entered', server=name)
 
-        # Initialize the session
-        await session.initialize()
+        # Initialize the session with protocol version negotiation
+        try:
+            # Get client protocol version info
+            client_version = getattr(mcp_types, 'LATEST_PROTOCOL_VERSION', 'unknown')
+            supported_versions = getattr(mcp_types, 'SUPPORTED_PROTOCOL_VERSIONS', [])
+
+            self._log('INFO', f'Negotiating protocol version', server=name,
+                     details=f'client={client_version}, supported={supported_versions}')
+
+            result = await session.initialize()
+
+            # Log successful negotiation with server version and capabilities
+            server_version = result.protocolVersion if hasattr(result, 'protocolVersion') else 'unknown'
+            server_caps = result.capabilities if hasattr(result, 'capabilities') else None
+
+            self._log('INFO', f'Protocol negotiation successful', server=name,
+                     details=f'server_version={server_version}, capabilities={server_caps}')
+
+        except RuntimeError as e:
+            # Version mismatch - this is likely the cause of connection cycling!
+            error_msg = str(e)
+            if 'protocol version' in error_msg.lower():
+                self._log('ERROR', 'PROTOCOL VERSION MISMATCH DETECTED', server=name,
+                         details=f'{error_msg} (client supports: {supported_versions})')
+            raise
+        except Exception as e:
+            self._log('ERROR', f'Session initialization failed', server=name,
+                     details=f'{type(e).__name__}: {e}')
+            raise
 
         self._log('DEBUG', 'Session initialized', server=name)
 
