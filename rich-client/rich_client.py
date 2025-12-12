@@ -922,8 +922,13 @@ class RichClient:
             await asyncio.sleep(1.0)
             app.exit()
 
-        # Schedule the replay task
-        self._display._app.create_background_task(replay_task())
+        # Schedule the replay task to start after the event loop is running
+        # Use pre_run_callables to create the task once the app starts
+        def start_replay():
+            """Called once the event loop is running."""
+            self._display._app.create_background_task(replay_task())
+
+        self._display._app.pre_run_callables.append(start_replay)
 
         try:
             # Run the application
