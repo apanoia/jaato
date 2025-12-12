@@ -769,11 +769,13 @@ class RichClient:
         Args:
             initial_prompt: Optional prompt to run before entering interactive mode.
         """
-        # Create the display with input handler, agent registry, and key event tracking
+        # Create the display with input handler, agent registry
+        # Note: Key event tracking disabled for now - causes input blocking issues
+        # Will be re-enabled with a better implementation
         self._display = PTDisplay(
             input_handler=self._input_handler,
             agent_registry=self._agent_registry,
-            key_event_callback=self._track_key_event
+            key_event_callback=None  # Disabled - was interfering with normal input
         )
 
         # Set model info in status bar

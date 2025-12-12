@@ -410,32 +410,6 @@ class PTDisplay:
                 self._agent_registry.cycle_selection()
                 self._app.invalidate()
 
-        # Add a catch-all handler for keyboard event tracking (runs before other handlers)
-        # This captures all key presses for session recording
-        if self._key_event_callback:
-            from prompt_toolkit.keys import Keys
-
-            @kb.add('<any>', eager=True)
-            def track_key_event(event):
-                """Track all key events for session recording."""
-                # Get the key name - event.key_sequence gives us the key(s) pressed
-                if event.key_sequence:
-                    # Get the first key from the sequence
-                    key = event.key_sequence[0]
-                    # Convert to string representation
-                    if hasattr(key, 'value'):
-                        key_str = key.value if isinstance(key.value, str) else str(key)
-                    else:
-                        key_str = str(key)
-
-                    # Call the callback with the key name
-                    if self._key_event_callback:
-                        self._key_event_callback(key_str)
-
-                # Don't consume the key - let other handlers process it
-                # Return NotImplemented to pass through to other bindings
-                return NotImplemented
-
         # Status bar at top (always visible, 1 line)
         status_bar = Window(
             FormattedTextControl(self._get_status_bar_content),
