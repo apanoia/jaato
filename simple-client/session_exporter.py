@@ -47,12 +47,20 @@ class SessionExporter:
         # Check if we have keyboard events (rich client format)
         if keyboard_events:
             # Rich format export with keyboard events
+            # Remove delay from the last event (no need for delay after final action)
+            if keyboard_events and 'delay' in keyboard_events[-1]:
+                last_event = keyboard_events[-1].copy()
+                del last_event['delay']
+                processed_events = keyboard_events[:-1] + [last_event]
+            else:
+                processed_events = keyboard_events
+
             timestamp = datetime.now().strftime('%Y-%m-%d %H:%M')
             export_data = {
                 'name': f'Session Export [{timestamp}]',
                 'format': 'rich',  # Indicates rich client keyboard event format
                 'timeout': 120,
-                'events': keyboard_events,
+                'events': processed_events,
             }
         else:
             # Standard format export with text steps

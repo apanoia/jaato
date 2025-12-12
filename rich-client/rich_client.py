@@ -800,9 +800,8 @@ class RichClient:
         # Set model info in status bar
         self._display.set_model_info(self._model_provider, self._model_name)
 
-        # Track initial prompt if provided
-        if initial_prompt:
-            self._track_prompt_submission(initial_prompt)
+        # Note: initial_prompt (if provided) will be auto-tracked when submitted
+        # by run_input_loop, so no need to track it here to avoid duplication
 
         # Set up the live reporter and queue channels
         self._setup_live_reporter()
