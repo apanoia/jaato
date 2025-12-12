@@ -913,8 +913,8 @@ class RichClient:
             """Feed events (prompts and special keys) to the application."""
             app = self._display._app
             for event in events:
-                # Wait for the specified delay
-                await asyncio.sleep(event['delay'])
+                # Wait for the specified delay (default to 0 if not present)
+                await asyncio.sleep(event.get('delay', 0))
 
                 event_type = event.get('type', 'key')  # Default to 'key' for backward compat
 
