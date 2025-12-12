@@ -96,7 +96,7 @@ class MCPClientManager:
     ) -> ServerConnection:
         """
         Connect to an MCP server.
-        
+
         Args:
             name: Unique identifier for this connection
             command: Command to run the server
@@ -105,32 +105,42 @@ class MCPClientManager:
         """
         if name in self._connections:
             raise ValueError(f"Server '{name}' already connected")
-        
+
         config = ServerConfig(
             name=name,
             command=command,
             args=args or [],
             env=env,
         )
-        
+
+        import sys
+        print(f"[MCPClientManager] Creating stdio_client for '{name}': {command} {args}", file=sys.stderr, flush=True)
+
         # Enter the stdio_client context
         stdio_ctx = stdio_client(config.to_stdio_params())
         read, write = await stdio_ctx.__aenter__()
         self._contexts.append(stdio_ctx)
-        
+
+        print(f"[MCPClientManager] stdio_client entered for '{name}'", file=sys.stderr, flush=True)
+
         # Enter the session context
         session_ctx = ClientSession(read, write)
         session = await session_ctx.__aenter__()
         self._contexts.append(session_ctx)
-        
+
+        print(f"[MCPClientManager] ClientSession entered for '{name}'", file=sys.stderr, flush=True)
+
         # Initialize the session
         await session.initialize()
-        
+
+        print(f"[MCPClientManager] Session initialized for '{name}'", file=sys.stderr, flush=True)
+
         # Create connection object
         connection = ServerConnection(config=config, session=session)
         await connection.refresh_tools()
-        
+
         self._connections[name] = connection
+        print(f"[MCPClientManager] Connection established for '{name}' ({len(connection.tools)} tools)", file=sys.stderr, flush=True)
         return connection
     
     async def disconnect(self, name: str) -> None:
@@ -176,11 +186,16 @@ class MCPClientManager:
         return {name: conn.tools for name, conn in self._connections.items()}
     
     async def __aenter__(self) -> "MCPClientManager":
+        import sys
+        print(f"[MCPClientManager] __aenter__ called", file=sys.stderr, flush=True)
         return self
     
     async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
         # Close all contexts in reverse order with proper cleanup
         # On Windows, subprocess cleanup needs special handling to avoid pipe errors
+
+        import sys
+        print(f"[MCPClientManager] __aexit__ called (exc_type={exc_type}, {len(self._connections)} connections)", file=sys.stderr, flush=True)
 
         # Give pending operations a chance to complete
         try:
@@ -194,12 +209,15 @@ class MCPClientManager:
         # background thread request processor). We only clean up our own contexts.
 
         # Close all contexts in reverse order
-        for ctx in reversed(self._contexts):
+        print(f"[MCPClientManager] Closing {len(self._contexts)} contexts", file=sys.stderr, flush=True)
+        for idx, ctx in enumerate(reversed(self._contexts)):
             try:
+                print(f"[MCPClientManager] Closing context {idx+1}/{len(self._contexts)}", file=sys.stderr, flush=True)
                 await ctx.__aexit__(exc_type, exc_val, exc_tb)
-            except (Exception, asyncio.CancelledError):
+            except (Exception, asyncio.CancelledError) as e:
                 # Silently ignore cleanup errors - they're typically just
                 # resource warnings from subprocess cleanup on Windows
+                print(f"[MCPClientManager] Context cleanup error (ignored): {e}", file=sys.stderr, flush=True)
                 pass
 
         # On Windows, give subprocess transports time to finish cleanup
@@ -211,4 +229,5 @@ class MCPClientManager:
 
         self._contexts.clear()
         self._connections.clear()
+        print(f"[MCPClientManager] __aexit__ complete", file=sys.stderr, flush=True)
 
