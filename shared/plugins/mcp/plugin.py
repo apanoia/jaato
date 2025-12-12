@@ -1101,7 +1101,18 @@ Examples:
                             self._response_queue.put(('error', f'Unknown message type: {msg_type}'))
 
                     except queue.Empty:
+                        # No messages in queue, sleep briefly before checking again
                         await asyncio.sleep(0.01)
+                    except Exception as exc:
+                        # Catch any unexpected exceptions to prevent loop exit
+                        # which would close all MCP connections
+                        self._log_event(
+                            LOG_ERROR,
+                            "Unexpected error in request processing loop",
+                            details=f"{type(exc).__name__}: {exc}"
+                        )
+                        # Sleep briefly to avoid tight loop if error repeats
+                        await asyncio.sleep(0.1)
 
         self._loop = asyncio.new_event_loop()
         asyncio.set_event_loop(self._loop)

@@ -188,17 +188,10 @@ class MCPClientManager:
         except asyncio.CancelledError:
             pass  # Event loop may be shutting down
 
-        # Cancel any pending tasks in the current event loop
-        if sys.version_info >= (3, 11):
-            try:
-                tasks = [t for t in asyncio.all_tasks() if not t.done()]
-                if tasks:
-                    for task in tasks:
-                        task.cancel()
-                    # Wait briefly for cancellation to complete
-                    await asyncio.sleep(0.05)
-            except (Exception, asyncio.CancelledError):
-                pass  # Ignore errors during task cleanup
+        # NOTE: We do NOT cancel all tasks in the event loop here!
+        # The previous implementation cancelled ALL tasks, which would interfere
+        # with other code sharing the same event loop (like the MCP plugin's
+        # background thread request processor). We only clean up our own contexts.
 
         # Close all contexts in reverse order
         for ctx in reversed(self._contexts):
