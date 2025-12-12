@@ -940,7 +940,7 @@ Examples:
                     self._log_event(LOG_ERROR, "Connection failed", server=name, details=error_msg)
                     return False, error_msg
 
-            # Helper to update tool cache
+            # Helper to update tool cache (called after each successful connection)
             def update_tool_cache(mgr: MCPClientManager):
                 self._tool_cache = {
                     name: list(conn.tools)
@@ -955,9 +955,14 @@ Examples:
 
                 for idx, (name, spec) in enumerate(server_list, 1):
                     self._log_event(LOG_DEBUG, f"Processing server {idx}/{len(server_list)}", server=name)
-                    await connect_server(manager, name, spec)
+                    success, error = await connect_server(manager, name, spec)
 
-                # Cache tools and log summary
+                    # Update cache after each connection so main thread can proceed
+                    # without waiting for all servers to finish
+                    if success:
+                        update_tool_cache(manager)
+
+                # Final cache update after all connection attempts
                 update_tool_cache(manager)
                 self._manager = manager
 
