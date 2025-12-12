@@ -83,11 +83,6 @@ class MCPToolPlugin:
         # Interaction log
         self._log: deque = deque(maxlen=MAX_LOG_ENTRIES)
         self._log_lock = threading.Lock()
-        # Thread initialization lock to prevent race conditions
-        self._init_lock = threading.Lock()
-        # Track last initialization time to prevent rapid restarts
-        self._last_init_time: Optional[float] = None
-        self._min_restart_interval = 5.0  # Minimum 5 seconds between restarts
 
     def _log_event(
         self,
@@ -127,7 +122,6 @@ class MCPToolPlugin:
 
     def shutdown(self) -> None:
         """Shutdown the MCP plugin and clean up resources."""
-        self._log_event(LOG_INFO, "Shutting down MCP plugin")
         if self._request_queue:
             self._request_queue.put((None, None))  # Signal shutdown
         if self._thread and self._thread.is_alive():
@@ -141,8 +135,6 @@ class MCPToolPlugin:
         self._initialized = False
         self._connected_servers = set()
         self._failed_servers = {}
-        # Reset last init time so clean shutdowns don't affect restart cooldown
-        self._last_init_time = None
 
     def get_tool_schemas(self) -> List[ToolSchema]:
         """Return ToolSchemas for all discovered MCP tools."""
@@ -940,29 +932,22 @@ Examples:
                     self._log_event(LOG_ERROR, "Connection failed", server=name, details=error_msg)
                     return False, error_msg
 
-            # Helper to update tool cache (called after each successful connection)
+            # Helper to update tool cache
             def update_tool_cache(mgr: MCPClientManager):
                 self._tool_cache = {
                     name: list(conn.tools)
                     for name, conn in mgr._connections.items()
                 }
 
-            manager = MCPClientManager()
+            manager = MCPClientManager(log_callback=self._log_event)
             async with manager:
                 # Initial connection to all configured servers
                 server_list = list(servers.items())
-                self._log_event(LOG_INFO, f"Connecting to {len(server_list)} server(s)")
-
                 for idx, (name, spec) in enumerate(server_list, 1):
                     self._log_event(LOG_DEBUG, f"Processing server {idx}/{len(server_list)}", server=name)
-                    success, error = await connect_server(manager, name, spec)
+                    await connect_server(manager, name, spec)
 
-                    # Update cache after each connection so main thread can proceed
-                    # without waiting for all servers to finish
-                    if success:
-                        update_tool_cache(manager)
-
-                # Final cache update after all connection attempts
+                # Cache tools and log summary
                 update_tool_cache(manager)
                 self._manager = manager
 
@@ -1108,18 +1093,7 @@ Examples:
                             self._response_queue.put(('error', f'Unknown message type: {msg_type}'))
 
                     except queue.Empty:
-                        # No messages in queue, sleep briefly before checking again
                         await asyncio.sleep(0.01)
-                    except Exception as exc:
-                        # Catch any unexpected exceptions to prevent loop exit
-                        # which would close all MCP connections
-                        self._log_event(
-                            LOG_ERROR,
-                            "Unexpected error in request processing loop",
-                            details=f"{type(exc).__name__}: {exc}"
-                        )
-                        # Sleep briefly to avoid tight loop if error repeats
-                        await asyncio.sleep(0.1)
 
         self._loop = asyncio.new_event_loop()
         asyncio.set_event_loop(self._loop)
@@ -1152,46 +1126,20 @@ Examples:
                 pass  # Ignore errors when closing loop
 
     def _ensure_thread(self):
-        """Start the MCP background thread if not already running.
-
-        Uses a lock to prevent race conditions where multiple threads
-        might try to initialize simultaneously, which was causing
-        connection cycling issues.
-        """
-        # Quick check without lock for performance
+        """Start the MCP background thread if not already running."""
         if self._thread is not None and self._thread.is_alive():
             return
 
-        # Acquire lock to prevent race condition
-        with self._init_lock:
-            # Double-check after acquiring lock
-            if self._thread is not None and self._thread.is_alive():
-                return
+        self._request_queue = queue.Queue()
+        self._response_queue = queue.Queue()
+        self._thread = threading.Thread(target=self._thread_main, daemon=True)
+        self._thread.start()
 
-            # Prevent rapid restart cycles if thread keeps crashing
-            current_time = time.time()
-            if self._last_init_time is not None:
-                time_since_last_init = current_time - self._last_init_time
-                if time_since_last_init < self._min_restart_interval:
-                    self._log_event(
-                        LOG_WARN,
-                        f"Preventing rapid restart (last started {time_since_last_init:.1f}s ago)",
-                        details=f"Will not restart thread within {self._min_restart_interval}s interval"
-                    )
-                    return
-
-            self._log_event(LOG_DEBUG, "Starting MCP background thread")
-            self._last_init_time = current_time
-            self._request_queue = queue.Queue()
-            self._response_queue = queue.Queue()
-            self._thread = threading.Thread(target=self._thread_main, daemon=True)
-            self._thread.start()
-
-            # Wait for tools to be discovered
-            for _ in range(100):  # 10 second timeout
-                if self._tool_cache:
-                    break
-                time.sleep(0.1)
+        # Wait for tools to be discovered
+        for _ in range(100):  # 10 second timeout
+            if self._tool_cache:
+                break
+            time.sleep(0.1)
 
     def _execute(self, toolname: str, args: Dict[str, Any]) -> Dict[str, Any]:
         """Execute an MCP tool via the background connection.

@@ -7,7 +7,7 @@ A clean architecture for managing multiple simultaneous MCP server connections.
 import asyncio
 import sys
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Callable, Optional
 from contextlib import asynccontextmanager
 import os
 
@@ -67,10 +67,16 @@ class MCPClientManager:
             await session.call_tool(...)
     """
     
-    def __init__(self):
+    def __init__(self, log_callback: Optional[Callable[[str, str, Optional[str], Optional[str]], None]] = None):
         self._connections: dict[str, ServerConnection] = {}
         self._contexts: list[Any] = [] # Track context managers for cleanup
         self._task_group = None
+        self._log_callback = log_callback
+
+    def _log(self, level: str, event: str, server: Optional[str] = None, details: Optional[str] = None):
+        """Log an event if a callback is configured."""
+        if self._log_callback:
+            self._log_callback(level, event, server, details)
     
     @property
     def servers(self) -> list[str]:
@@ -96,7 +102,7 @@ class MCPClientManager:
     ) -> ServerConnection:
         """
         Connect to an MCP server.
-
+        
         Args:
             name: Unique identifier for this connection
             command: Command to run the server
@@ -113,34 +119,33 @@ class MCPClientManager:
             env=env,
         )
 
-        import sys
-        print(f"[MCPClientManager] Creating stdio_client for '{name}': {command} {args}", file=sys.stderr, flush=True)
+        self._log('DEBUG', f"Creating stdio_client: {command} {' '.join(str(a) for a in (args or []))}", server=name)
 
         # Enter the stdio_client context
         stdio_ctx = stdio_client(config.to_stdio_params())
         read, write = await stdio_ctx.__aenter__()
         self._contexts.append(stdio_ctx)
 
-        print(f"[MCPClientManager] stdio_client entered for '{name}'", file=sys.stderr, flush=True)
+        self._log('DEBUG', 'stdio_client entered', server=name)
 
         # Enter the session context
         session_ctx = ClientSession(read, write)
         session = await session_ctx.__aenter__()
         self._contexts.append(session_ctx)
 
-        print(f"[MCPClientManager] ClientSession entered for '{name}'", file=sys.stderr, flush=True)
+        self._log('DEBUG', 'ClientSession entered', server=name)
 
         # Initialize the session
         await session.initialize()
 
-        print(f"[MCPClientManager] Session initialized for '{name}'", file=sys.stderr, flush=True)
+        self._log('DEBUG', 'Session initialized', server=name)
 
         # Create connection object
         connection = ServerConnection(config=config, session=session)
         await connection.refresh_tools()
 
         self._connections[name] = connection
-        print(f"[MCPClientManager] Connection established for '{name}' ({len(connection.tools)} tools)", file=sys.stderr, flush=True)
+        self._log('INFO', f'Connection established ({len(connection.tools)} tools)', server=name)
         return connection
     
     async def disconnect(self, name: str) -> None:
@@ -186,16 +191,14 @@ class MCPClientManager:
         return {name: conn.tools for name, conn in self._connections.items()}
     
     async def __aenter__(self) -> "MCPClientManager":
-        import sys
-        print(f"[MCPClientManager] __aenter__ called", file=sys.stderr, flush=True)
+        self._log('DEBUG', 'MCPClientManager __aenter__ called')
         return self
     
     async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
         # Close all contexts in reverse order with proper cleanup
         # On Windows, subprocess cleanup needs special handling to avoid pipe errors
 
-        import sys
-        print(f"[MCPClientManager] __aexit__ called (exc_type={exc_type}, {len(self._connections)} connections)", file=sys.stderr, flush=True)
+        self._log('DEBUG', f'MCPClientManager __aexit__ called (exc_type={exc_type}, {len(self._connections)} connections)')
 
         # Give pending operations a chance to complete
         try:
@@ -203,21 +206,29 @@ class MCPClientManager:
         except asyncio.CancelledError:
             pass  # Event loop may be shutting down
 
-        # NOTE: We do NOT cancel all tasks in the event loop here!
-        # The previous implementation cancelled ALL tasks, which would interfere
-        # with other code sharing the same event loop (like the MCP plugin's
-        # background thread request processor). We only clean up our own contexts.
+        # Cancel any pending tasks in the current event loop
+        if sys.version_info >= (3, 11):
+            try:
+                tasks = [t for t in asyncio.all_tasks() if not t.done()]
+                if tasks:
+                    self._log('DEBUG', f'Cancelling {len(tasks)} pending tasks')
+                    for task in tasks:
+                        task.cancel()
+                    # Wait briefly for cancellation to complete
+                    await asyncio.sleep(0.05)
+            except (Exception, asyncio.CancelledError):
+                pass  # Ignore errors during task cleanup
 
         # Close all contexts in reverse order
-        print(f"[MCPClientManager] Closing {len(self._contexts)} contexts", file=sys.stderr, flush=True)
+        self._log('DEBUG', f'Closing {len(self._contexts)} contexts')
         for idx, ctx in enumerate(reversed(self._contexts)):
             try:
-                print(f"[MCPClientManager] Closing context {idx+1}/{len(self._contexts)}", file=sys.stderr, flush=True)
+                self._log('DEBUG', f'Closing context {idx+1}/{len(self._contexts)}')
                 await ctx.__aexit__(exc_type, exc_val, exc_tb)
             except (Exception, asyncio.CancelledError) as e:
                 # Silently ignore cleanup errors - they're typically just
                 # resource warnings from subprocess cleanup on Windows
-                print(f"[MCPClientManager] Context cleanup error (ignored): {e}", file=sys.stderr, flush=True)
+                self._log('DEBUG', f'Context cleanup error (ignored): {e}')
                 pass
 
         # On Windows, give subprocess transports time to finish cleanup
@@ -229,5 +240,5 @@ class MCPClientManager:
 
         self._contexts.clear()
         self._connections.clear()
-        print(f"[MCPClientManager] __aexit__ complete", file=sys.stderr, flush=True)
+        self._log('DEBUG', 'MCPClientManager __aexit__ complete')
 
