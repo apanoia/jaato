@@ -47,13 +47,23 @@ class SessionExporter:
         # Check if we have keyboard events (rich client format)
         if keyboard_events:
             # Rich format export with keyboard events
+            # Filter out export and exit commands from the events
+            filtered_events = []
+            for event in keyboard_events:
+                if event.get('type') == 'prompt':
+                    text = event.get('text', '').strip()
+                    # Skip export commands and exit commands
+                    if text.startswith('export ') or text == 'exit':
+                        continue
+                filtered_events.append(event)
+
             # Remove delay from the last event (no need for delay after final action)
-            if keyboard_events and 'delay' in keyboard_events[-1]:
-                last_event = keyboard_events[-1].copy()
+            if filtered_events and 'delay' in filtered_events[-1]:
+                last_event = filtered_events[-1].copy()
                 del last_event['delay']
-                processed_events = keyboard_events[:-1] + [last_event]
+                processed_events = filtered_events[:-1] + [last_event]
             else:
-                processed_events = keyboard_events
+                processed_events = filtered_events
 
             timestamp = datetime.now().strftime('%Y-%m-%d %H:%M')
             export_data = {
