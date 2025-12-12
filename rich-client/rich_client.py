@@ -922,11 +922,9 @@ class RichClient:
                     if event_type == 'prompt':
                         # Complete prompt submission
                         text = event['text']
-                        # Set the text in the buffer and submit it
+                        # Set the text in the buffer and trigger submission (like pressing Enter)
                         app.current_buffer.text = text
-                        if self._display._input_callback:
-                            app.current_buffer.reset()
-                            self._display._input_callback(text)
+                        app.current_buffer.validate_and_handle()
 
                     elif event_type == 'key':
                         # Special key event
