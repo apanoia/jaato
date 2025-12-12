@@ -123,22 +123,6 @@ class PTDisplay:
             complete_while_typing=True if input_handler else False,
             enable_history_search=True,  # Enable up/down arrow history navigation
         )
-
-        # Hook into buffer's text insert event for tracking regular key presses
-        if self._key_event_callback:
-            def on_text_insert(buff):
-                """Track text insertions (regular character keys)."""
-                # Get the last inserted text
-                if buff.text:
-                    # Track each character in the newly inserted text
-                    # Note: This is called after text is inserted, so it's safe
-                    # We track the last character that was added
-                    last_char = buff.text[-1] if buff.text else ''
-                    if last_char:
-                        self._track_key(last_char)
-
-            self._input_buffer.on_text_insert += on_text_insert
-
         self._input_callback: Optional[Callable[[str], None]] = None
 
         # Spinner animation timer (spinner state is in output_buffer)
@@ -293,14 +277,14 @@ class PTDisplay:
         # Use full-width renderer - Panel's width parameter handles sizing
         return to_formatted_text(ANSI(self._renderer.render(panel)))
 
-    def _track_key(self, key_name: str) -> None:
-        """Helper to track a key press if callback is set.
+    def _track_special_key(self, key_name: str) -> None:
+        """Helper to track a special key press (function keys, navigation, etc.) if callback is set.
 
         Args:
-            key_name: Name of the key that was pressed.
+            key_name: Name of the special key that was pressed.
         """
         if self._key_event_callback:
-            self._key_event_callback(key_name)
+            self._key_event_callback('', special_key=key_name)
 
     def _build_app(self) -> None:
         """Build the prompt_toolkit application."""
@@ -310,7 +294,7 @@ class PTDisplay:
         @kb.add("enter")
         def handle_enter(event):
             """Handle enter key - submit input or advance pager."""
-            self._track_key("enter")
+            # Note: Don't track enter here - tracking happens in _handle_input
             if getattr(self, '_pager_active', False):
                 # In pager mode - advance page
                 if self._input_callback:
@@ -328,7 +312,7 @@ class PTDisplay:
         @kb.add("q")
         def handle_q(event):
             """Handle 'q' key - quit pager if active, otherwise type 'q'."""
-            self._track_key("q")
+            # Note: Don't track 'q' when typing - it's just a regular character
             if getattr(self, '_pager_active', False):
                 # In pager mode - quit pager
                 if self._input_callback:
@@ -340,19 +324,19 @@ class PTDisplay:
         @kb.add("c-c")
         def handle_ctrl_c(event):
             """Handle Ctrl-C - exit."""
-            self._track_key("c-c")
+            self._track_special_key("c-c")
             event.app.exit(exception=KeyboardInterrupt())
 
         @kb.add("c-d")
         def handle_ctrl_d(event):
             """Handle Ctrl-D - EOF."""
-            self._track_key("c-d")
+            self._track_special_key("c-d")
             event.app.exit(exception=EOFError())
 
         @kb.add("pageup")
         def handle_page_up(event):
             """Handle Page-Up - scroll output up."""
-            self._track_key("pageup")
+            self._track_special_key("pageup")
             # Use selected agent's buffer if registry present
             if self._agent_registry:
                 buffer = self._agent_registry.get_selected_buffer()
@@ -367,7 +351,7 @@ class PTDisplay:
         @kb.add("pagedown")
         def handle_page_down(event):
             """Handle Page-Down - scroll output down."""
-            self._track_key("pagedown")
+            self._track_special_key("pagedown")
             # Use selected agent's buffer if registry present
             if self._agent_registry:
                 buffer = self._agent_registry.get_selected_buffer()
@@ -382,7 +366,7 @@ class PTDisplay:
         @kb.add("home")
         def handle_home(event):
             """Handle Home - scroll to top of output."""
-            self._track_key("home")
+            self._track_special_key("home")
             # Use selected agent's buffer if registry present
             if self._agent_registry:
                 buffer = self._agent_registry.get_selected_buffer()
@@ -400,7 +384,7 @@ class PTDisplay:
         @kb.add("end")
         def handle_end(event):
             """Handle End - scroll to bottom of output."""
-            self._track_key("end")
+            self._track_special_key("end")
             # Use selected agent's buffer if registry present
             if self._agent_registry:
                 buffer = self._agent_registry.get_selected_buffer()
@@ -415,19 +399,19 @@ class PTDisplay:
         @kb.add("up")
         def handle_up(event):
             """Handle Up arrow - history/completion navigation."""
-            self._track_key("up")
+            # Note: Don't track up/down - they're for history navigation, not recording
             event.current_buffer.auto_up()
 
         @kb.add("down")
         def handle_down(event):
             """Handle Down arrow - history/completion navigation."""
-            self._track_key("down")
+            # Note: Don't track up/down - they're for history navigation, not recording
             event.current_buffer.auto_down()
 
         @kb.add("f1")
         def handle_f1(event):
             """Handle F1 - toggle plan panel collapse/expand."""
-            self._track_key("f1")
+            self._track_special_key("f1")
             if self._plan_panel.has_plan:
                 self._plan_panel.toggle_collapsed()
                 self._app.invalidate()
@@ -435,7 +419,7 @@ class PTDisplay:
         @kb.add("c-f1")
         def handle_ctrl_f1(event):
             """Handle Ctrl+F1 - toggle plan panel visibility."""
-            self._track_key("c-f1")
+            self._track_special_key("c-f1")
             if self._plan_panel.has_plan:
                 self._plan_panel.toggle_hidden()
                 self._app.invalidate()
@@ -443,7 +427,7 @@ class PTDisplay:
         @kb.add("f2")
         def handle_f2(event):
             """Handle F2 - cycle through agents."""
-            self._track_key("f2")
+            self._track_special_key("f2")
             if self._agent_registry:
                 self._agent_registry.cycle_selection()
                 self._app.invalidate()

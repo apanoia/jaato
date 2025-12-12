@@ -657,11 +657,12 @@ class RichClient:
             self._display.clear_output()
             self._display.clear_plan()
 
-    def _track_key_event(self, key: str) -> None:
-        """Track a keyboard event for session recording.
+    def _track_prompt_submission(self, text: str, special_key: Optional[str] = None) -> None:
+        """Track a prompt submission or special key for session recording.
 
         Args:
-            key: The key that was pressed (e.g., "a", "enter", "c-c", "f1").
+            text: The text of the prompt being submitted (empty for special keys).
+            special_key: Optional special key name (e.g., "f1", "c-c") if not a text prompt.
         """
         current_time = time.time()
 
@@ -672,10 +673,20 @@ class RichClient:
             delay = 0.0
 
         # Record the event
-        self._keyboard_events.append({
-            'key': key,
-            'delay': round(delay, 3)  # Round to milliseconds
-        })
+        if special_key:
+            # Special key event (function keys, control keys, etc.)
+            self._keyboard_events.append({
+                'type': 'key',
+                'key': special_key,
+                'delay': round(delay, 3)
+            })
+        else:
+            # Text prompt submission
+            self._keyboard_events.append({
+                'type': 'prompt',
+                'text': text,
+                'delay': round(delay, 3)
+            })
 
         # Update last event time
         self._last_event_time = current_time
@@ -686,6 +697,10 @@ class RichClient:
         Args:
             user_input: The text entered by the user.
         """
+        # Track this prompt submission (complete text, not individual keys)
+        if user_input:  # Only track non-empty submissions
+            self._track_prompt_submission(user_input)
+
         # Check if pager is active - handle pager input first
         if self._display.pager_active:
             self._display.handle_pager_input(user_input)
@@ -773,11 +788,15 @@ class RichClient:
         self._display = PTDisplay(
             input_handler=self._input_handler,
             agent_registry=self._agent_registry,
-            key_event_callback=self._track_key_event  # Re-enabled with non-blocking approach
+            key_event_callback=self._track_prompt_submission  # Track complete prompts
         )
 
         # Set model info in status bar
         self._display.set_model_info(self._model_provider, self._model_name)
+
+        # Track initial prompt if provided
+        if initial_prompt:
+            self._track_prompt_submission(initial_prompt)
 
         # Set up the live reporter and queue channels
         self._setup_live_reporter()
@@ -884,38 +903,41 @@ class RichClient:
         # Validate TTY
         self._display.start()
 
-        # Create a replay task that feeds keys into the application
+        # Create a replay task that feeds events into the application
         async def replay_task():
-            """Feed keyboard events to the application."""
+            """Feed events (prompts and special keys) to the application."""
             app = self._display._app
             for event in events:
                 # Wait for the specified delay
                 await asyncio.sleep(event['delay'])
 
-                # Feed the key to the application
-                key_name = event['key']
-                # Convert key name to Keys enum or character
+                event_type = event.get('type', 'key')  # Default to 'key' for backward compat
+
                 try:
-                    if len(key_name) == 1:
-                        # Single character
-                        app.current_buffer.insert_text(key_name)
-                    elif key_name == 'enter':
-                        # Simulate enter key
+                    if event_type == 'prompt':
+                        # Complete prompt submission
+                        text = event['text']
+                        # Set the text in the buffer and submit it
+                        app.current_buffer.text = text
                         if self._display._input_callback:
-                            text = app.current_buffer.text
                             app.current_buffer.reset()
                             self._display._input_callback(text)
-                    elif key_name.startswith('c-'):
-                        # Control key - handle special cases
-                        if key_name == 'c-c':
-                            app.exit(exception=KeyboardInterrupt())
-                            return
-                        elif key_name == 'c-d':
-                            app.exit(exception=EOFError())
-                            return
-                    # Add more key mappings as needed
+
+                    elif event_type == 'key':
+                        # Special key event
+                        key_name = event['key']
+                        if key_name.startswith('c-'):
+                            # Control key - handle special cases
+                            if key_name == 'c-c':
+                                app.exit(exception=KeyboardInterrupt())
+                                return
+                            elif key_name == 'c-d':
+                                app.exit(exception=EOFError())
+                                return
+                        # Other special keys (F1, F2, etc.) can be added as needed
+
                 except Exception as e:
-                    # Skip keys that can't be replayed
+                    # Skip events that can't be replayed
                     pass
 
             # After all events, wait a bit then exit
