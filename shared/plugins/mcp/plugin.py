@@ -950,10 +950,18 @@ Examples:
             manager = MCPClientManager()
             async with manager:
                 # Initial connection to all configured servers
+                # Connect concurrently to prevent blocking already-connected servers
                 server_list = list(servers.items())
-                for idx, (name, spec) in enumerate(server_list, 1):
-                    self._log_event(LOG_DEBUG, f"Processing server {idx}/{len(server_list)}", server=name)
-                    await connect_server(manager, name, spec)
+                self._log_event(LOG_INFO, f"Connecting to {len(server_list)} server(s) concurrently")
+
+                # Create connection tasks for all servers
+                connection_tasks = [
+                    connect_server(manager, name, spec)
+                    for name, spec in server_list
+                ]
+
+                # Wait for all connections to complete (or fail)
+                await asyncio.gather(*connection_tasks, return_exceptions=True)
 
                 # Cache tools and log summary
                 update_tool_cache(manager)
