@@ -14,6 +14,7 @@ import sys
 import pathlib
 import tempfile
 import threading
+import time
 from datetime import datetime
 from typing import Any, Callable, Dict, List, Optional
 
@@ -81,6 +82,10 @@ class RichClient:
 
         # Track original inputs for session export
         self._original_inputs: list[dict] = []
+
+        # Track all keyboard events for rich session export/replay
+        self._keyboard_events: list[dict] = []
+        self._last_event_time: Optional[float] = None
 
         # Flag to signal exit from input loop
         self._should_exit = False
