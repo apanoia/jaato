@@ -1,6 +1,7 @@
 """MCP tool plugin for executing Model Context Protocol tools."""
 
 import asyncio
+import functools
 import json
 import os
 import queue
@@ -958,7 +959,14 @@ Examples:
                 # Process requests from main thread
                 while True:
                     try:
-                        req = self._request_queue.get(timeout=0.1)
+                        # Use run_in_executor to prevent blocking the event loop
+                        # This allows the loop to continue processing MCP server messages
+                        # while waiting for requests from the main thread
+                        loop = asyncio.get_event_loop()
+                        req = await loop.run_in_executor(
+                            None,
+                            functools.partial(self._request_queue.get, timeout=0.01)
+                        )
                         if req is None or req == (None, None):  # Shutdown signal
                             self._log_event(LOG_INFO, "Shutdown signal received")
                             break
@@ -1093,6 +1101,7 @@ Examples:
                             self._response_queue.put(('error', f'Unknown message type: {msg_type}'))
 
                     except queue.Empty:
+                        # No requests available, yield control to process MCP server messages
                         await asyncio.sleep(0.01)
 
         self._loop = asyncio.new_event_loop()
