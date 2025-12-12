@@ -15,7 +15,8 @@ class SessionExporter:
         self,
         history: List[Any],
         original_inputs: List[Dict[str, Any]],
-        filename: str
+        filename: str,
+        keyboard_events: Optional[List[Dict[str, Any]]] = None
     ) -> Dict[str, Any]:
         """Export session to a YAML file for replay.
 
@@ -23,6 +24,8 @@ class SessionExporter:
             history: List of conversation content objects.
             original_inputs: List of original user input dicts with 'text' and 'local' keys.
             filename: Path to the output YAML file.
+            keyboard_events: Optional list of keyboard events with 'key' and 'delay' fields.
+                           If provided, creates a rich-format export for full replay.
 
         Returns:
             Dict with 'success' bool and 'message' or 'error' string.
@@ -41,22 +44,34 @@ class SessionExporter:
                 'error': "No conversation history to export"
             }
 
-        # Extract permission decisions from history, grouped by user turn
-        turn_permissions = self._extract_turn_permissions(history)
+        # Check if we have keyboard events (rich client format)
+        if keyboard_events:
+            # Rich format export with keyboard events
+            timestamp = datetime.now().strftime('%Y-%m-%d %H:%M')
+            export_data = {
+                'name': f'Session Export [{timestamp}]',
+                'format': 'rich',  # Indicates rich client keyboard event format
+                'timeout': 120,
+                'events': keyboard_events,
+            }
+        else:
+            # Standard format export with text steps
+            # Extract permission decisions from history, grouped by user turn
+            turn_permissions = self._extract_turn_permissions(history)
 
-        # Build steps from original inputs with matched permissions
-        final_steps = self._build_export_steps(original_inputs, turn_permissions)
+            # Build steps from original inputs with matched permissions
+            final_steps = self._build_export_steps(original_inputs, turn_permissions)
 
-        # Add quit step
-        final_steps.append({'type': 'quit', 'delay': 0.08})
+            # Add quit step
+            final_steps.append({'type': 'quit', 'delay': 0.08})
 
-        # Build the YAML document
-        timestamp = datetime.now().strftime('%Y-%m-%d %H:%M')
-        export_data = {
-            'name': f'Session Export [{timestamp}]',
-            'timeout': 120,
-            'steps': final_steps,
-        }
+            # Build the YAML document
+            timestamp = datetime.now().strftime('%Y-%m-%d %H:%M')
+            export_data = {
+                'name': f'Session Export [{timestamp}]',
+                'timeout': 120,
+                'steps': final_steps,
+            }
 
         # Write to file
         try:
@@ -69,10 +84,20 @@ class SessionExporter:
                     allow_unicode=True,
                     width=float('inf')  # Prevent line wrapping that splits words
                 )
+            # Return appropriate count based on format
+            if keyboard_events:
+                count = len(keyboard_events)
+                count_desc = f"{count} keyboard events"
+            else:
+                count = len(final_steps) - 1  # Exclude quit step
+                count_desc = f"{count} steps"
+
             return {
                 'success': True,
                 'message': f"Session exported to: {filename}",
-                'step_count': len(final_steps) - 1  # Exclude quit step
+                'filename': filename,
+                'count': count,
+                'count_description': count_desc
             }
         except IOError as e:
             return {

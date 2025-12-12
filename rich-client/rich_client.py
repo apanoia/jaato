@@ -657,6 +657,29 @@ class RichClient:
             self._display.clear_output()
             self._display.clear_plan()
 
+    def _track_key_event(self, key: str) -> None:
+        """Track a keyboard event for session recording.
+
+        Args:
+            key: The key that was pressed (e.g., "a", "enter", "c-c", "f1").
+        """
+        current_time = time.time()
+
+        # Calculate delay since last event
+        if self._last_event_time is not None:
+            delay = current_time - self._last_event_time
+        else:
+            delay = 0.0
+
+        # Record the event
+        self._keyboard_events.append({
+            'key': key,
+            'delay': round(delay, 3)  # Round to milliseconds
+        })
+
+        # Update last event time
+        self._last_event_time = current_time
+
     def _handle_input(self, user_input: str) -> None:
         """Handle user input from the prompt_toolkit input loop.
 
@@ -746,10 +769,11 @@ class RichClient:
         Args:
             initial_prompt: Optional prompt to run before entering interactive mode.
         """
-        # Create the display with input handler and agent registry
+        # Create the display with input handler, agent registry, and key event tracking
         self._display = PTDisplay(
             input_handler=self._input_handler,
-            agent_registry=self._agent_registry
+            agent_registry=self._agent_registry,
+            key_event_callback=self._track_key_event
         )
 
         # Set model info in status bar
@@ -792,6 +816,118 @@ class RichClient:
             # Run the prompt_toolkit input loop
             # Initial prompt (if provided) is auto-submitted once event loop starts
             self._display.run_input_loop(self._handle_input, initial_prompt=initial_prompt)
+        except (EOFError, KeyboardInterrupt):
+            pass
+
+        print("Goodbye!")
+
+    def run_import_session(self, session_file: str) -> None:
+        """Import and replay a session from a YAML file.
+
+        Args:
+            session_file: Path to the YAML session file to replay.
+        """
+        try:
+            import yaml
+        except ImportError:
+            print("Error: PyYAML is required. Install with: pip install pyyaml")
+            return
+
+        # Load the session file
+        try:
+            with open(session_file, 'r') as f:
+                session_data = yaml.safe_load(f)
+        except FileNotFoundError:
+            print(f"Error: Session file not found: {session_file}")
+            return
+        except Exception as e:
+            print(f"Error loading session file: {e}")
+            return
+
+        # Check if this is a rich format (keyboard events) or standard format (text steps)
+        if session_data.get('format') == 'rich' and 'events' in session_data:
+            # Rich format - replay keyboard events
+            self._replay_keyboard_events(session_data['events'])
+        else:
+            # Standard format - not supported for rich client import
+            # (use the replayer with simple client for standard format)
+            print("Error: This session format is not supported for rich client import.")
+            print("Use --client simple with the replayer for standard format sessions.")
+            return
+
+    def _replay_keyboard_events(self, events: List[Dict[str, Any]]) -> None:
+        """Replay keyboard events in the TUI.
+
+        Args:
+            events: List of keyboard events with 'key' and 'delay' fields.
+        """
+        import asyncio
+        from prompt_toolkit.input.ansi_escape_sequences import REVERSE_ANSI_SEQUENCES
+        from prompt_toolkit.keys import Keys
+
+        # Set up the TUI (similar to run_interactive)
+        self._display = PTDisplay(
+            input_handler=self._input_handler,
+            agent_registry=self._agent_registry
+        )
+        self._display.set_model_info(self._model_provider, self._model_name)
+        self._setup_live_reporter()
+        self._setup_queue_channels()
+        self._setup_agent_hooks()
+
+        # Add welcome messages
+        release_name = "Jaato Rich TUI Client - Session Replay"
+        self._display.add_system_message(release_name, style="bold cyan")
+        self._display.add_system_message(f"Replaying {len(events)} keyboard events...", style="dim")
+        self._display.add_system_message("", style="dim")
+
+        # Validate TTY
+        self._display.start()
+
+        # Create a replay task that feeds keys into the application
+        async def replay_task():
+            """Feed keyboard events to the application."""
+            app = self._display._app
+            for event in events:
+                # Wait for the specified delay
+                await asyncio.sleep(event['delay'])
+
+                # Feed the key to the application
+                key_name = event['key']
+                # Convert key name to Keys enum or character
+                try:
+                    if len(key_name) == 1:
+                        # Single character
+                        app.current_buffer.insert_text(key_name)
+                    elif key_name == 'enter':
+                        # Simulate enter key
+                        if self._display._input_callback:
+                            text = app.current_buffer.text
+                            app.current_buffer.reset()
+                            self._display._input_callback(text)
+                    elif key_name.startswith('c-'):
+                        # Control key - handle special cases
+                        if key_name == 'c-c':
+                            app.exit(exception=KeyboardInterrupt())
+                            return
+                        elif key_name == 'c-d':
+                            app.exit(exception=EOFError())
+                            return
+                    # Add more key mappings as needed
+                except Exception as e:
+                    # Skip keys that can't be replayed
+                    pass
+
+            # After all events, wait a bit then exit
+            await asyncio.sleep(1.0)
+            app.exit()
+
+        # Schedule the replay task
+        self._display._app.create_background_task(replay_task())
+
+        try:
+            # Run the application
+            self._display._app.run()
         except (EOFError, KeyboardInterrupt):
             pass
 
@@ -1053,7 +1189,12 @@ class RichClient:
             from session_exporter import SessionExporter
             exporter = SessionExporter()
             history = self._jaato.get_history()
-            result = exporter.export_to_yaml(history, self._original_inputs, filename)
+            result = exporter.export_to_yaml(
+                history,
+                self._original_inputs,
+                filename,
+                keyboard_events=self._keyboard_events if self._keyboard_events else None
+            )
 
             if result.get('success'):
                 self._display.show_lines([
@@ -1177,6 +1318,12 @@ def main():
         type=str,
         help="Start with this prompt, then continue interactively"
     )
+    parser.add_argument(
+        "--import-session",
+        type=str,
+        metavar="FILE",
+        help="Import and replay a session from YAML file (for demos/recording)"
+    )
     args = parser.parse_args()
 
     # Check TTY before proceeding (except for single prompt mode)
@@ -1195,7 +1342,10 @@ def main():
         sys.exit(1)
 
     try:
-        if args.prompt:
+        if args.import_session:
+            # Import and replay session mode
+            client.run_import_session(args.import_session)
+        elif args.prompt:
             # Single prompt mode - run and exit (no TUI)
             response = client.run_prompt(args.prompt)
             print(response)

@@ -198,6 +198,7 @@ def run_demo(script_path: Path, client: str = 'simple'):
     timeout = script.get('timeout', 120)
     steps = script.get('steps', [])
     setup = script.get('setup')
+    script_format = script.get('format', 'standard')
 
     print(f"Starting {name} with {client_config['name']}...")
 
@@ -207,6 +208,24 @@ def run_demo(script_path: Path, client: str = 'simple'):
         for cmd in setup:
             subprocess.run(cmd, shell=True, cwd=PROJECT_ROOT)
 
+    # Check if this is a rich format session and we're using rich client
+    if script_format == 'rich' and 'events' in script and client == 'rich':
+        # Rich client with keyboard events - use --import-session
+        print(f"Using rich format session import ({len(script['events'])} events)...")
+        child = pexpect.spawn(
+            'python', [client_config['path'], '--env-file', '.env', '--import-session', str(script_path)],
+            encoding='utf-8',
+            timeout=timeout,
+            cwd=str(PROJECT_ROOT)
+        )
+        # Echo output
+        child.logfile_read = sys.stdout
+        # Just wait for the session to complete (no interaction needed)
+        child.expect(pexpect.EOF, timeout=timeout)
+        print(f"\n{name} completed.")
+        return
+
+    # Standard format - use traditional pexpect interaction
     # Spawn the client
     child = pexpect.spawn(
         'python', [client_config['path'], '--env-file', '.env'],
