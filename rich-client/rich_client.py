@@ -682,9 +682,15 @@ class RichClient:
             })
         else:
             # Text prompt submission
+            # Sanitize text: replace embedded newlines with spaces
+            # This prevents multi-line strings from causing YAML formatting issues
+            sanitized_text = text
+            if text and '\n' in text:
+                sanitized_text = ' '.join(text.split())
+
             self._keyboard_events.append({
                 'type': 'prompt',
-                'text': text,
+                'text': sanitized_text,
                 'delay': round(delay, 3)
             })
 
